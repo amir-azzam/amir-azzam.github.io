@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green: #00ff41;
+    --green-dim: #00c832;
+    --green-dark: #007a1f;
+    --green-glow: rgba(0,255,65,0.15);
+    --amber: #ffb000;
+    --cyan: #00ffff;
+    --red: #ff4444;
+    --bg: #0a0a0a;
+    --bg2: #0d0d0d;
+    --border: #1a2e1a;
+    --font: 'JetBrains Mono', monospace;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--green);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+
+  /* CRT scanline effect */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* CRT flicker */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4) 100%);
+    pointer-events: none;
+    z-index: 998;
+  }
+
+  #terminal-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 10px;
+  }
+
+  /* Title bar */
+  #titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: #111;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #titlebar .dots { display: flex; gap: 8px; }
+  #titlebar .dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+  .dot-r { background: #ff5f57; }
+  .dot-y { background: #febc2e; }
+  .dot-g { background: #28c840; }
+
+  #titlebar .title {
+    color: #555;
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+
+  #titlebar .version { color: #333; font-size: 11px; }
+
+  /* Output area */
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 10px 10px;
+    scroll-behavior: smooth;
+  }
+
+  #output::-webkit-scrollbar { width: 4px; }
+  #output::-webkit-scrollbar-track { background: transparent; }
+  #output::-webkit-scrollbar-thumb { background: var(--green-dark); border-radius: 2px; }
+
+  /* Input line */
+  #input-line {
+    display: flex;
+    align-items: center;
+    padding: 10px 10px 20px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+
+  #prompt { color: var(--green); white-space: nowrap; }
+  #prompt .user { color: var(--cyan); }
+  #prompt .at { color: #444; }
+  #prompt .host { color: var(--green-dim); }
+  #prompt .path { color: var(--amber); }
+
+  #cmd-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--green);
+    font-family: var(--font);
+    font-size: 14px;
+    caret-color: var(--green);
+  }
+
+  /* Output lines */
+  .line { margin-bottom: 2px; }
+  .line.blank { margin-bottom: 10px; }
+
+  .cmd-echo { color: #555; }
+  .cmd-echo .prompt-part { color: var(--cyan); }
+  .cmd-echo .path-part { color: var(--amber); }
+  .cmd-echo .cmd-part { color: var(--green); }
+
+  .output-text { color: var(--green-dim); }
+  .highlight { color: var(--green); font-weight: 500; }
+  .muted { color: #3a5a3a; }
+  .amber { color: var(--amber); }
+  .cyan { color: var(--cyan); }
+  .red { color: var(--red); }
+  .white { color: #e0e0e0; }
+  .dim { color: #2a4a2a; }
+
+  /* ASCII art */
+  .ascii { color: var(--green-dim); white-space: pre; font-size: 12px; line-height: 1.3; }
+
+  /* Directory listing */
+  .ls-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin: 4px 0;
+  }
+  .ls-item {
+    color: var(--cyan);
+    min-width: 120px;
+  }
+  .ls-item.file { color: var(--green-dim); }
+  .ls-item::before { content: '📁 '; font-size: 12px; }
+  .ls-item.file::before { content: '📄 '; font-size: 12px; }
+
+  /* Section styles */
+  .section-header {
+    color: var(--green);
+    font-weight: 700;
+    border-bottom: 1px solid var(--green-dark);
+    padding-bottom: 4px;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+
+  .entry {
+    margin-bottom: 14px;
+    padding-left: 12px;
+    border-left: 2px solid var(--green-dark);
+  }
+
+  .entry-title { color: var(--green); font-weight: 500; }
+  .entry-sub { color: var(--amber); font-size: 12px; }
+  .entry-date { color: #3a6a3a; font-size: 11px; }
+  .entry-body { color: #5a9a5a; margin-top: 4px; }
+  .entry-body li { margin-left: 16px; margin-bottom: 2px; }
+
+  /* Skills */
+  .skill-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 0;
+  }
+  .skill-tag {
+    border: 1px solid var(--green-dark);
+    color: var(--green);
+    padding: 2px 10px;
+    font-size: 12px;
+    background: rgba(0,255,65,0.04);
+  }
+  .skill-tag:hover { background: var(--green-glow); }
+
+  /* Typing animation */
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .cursor { animation: blink 1s infinite; }
+
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  .fade-in { animation: fadeIn 0.15s ease forwards; }
+
+  /* Boot sequence */
+  @keyframes glitch {
+    0%{transform:translate(0)} 20%{transform:translate(-2px,1px)} 40%{transform:translate(2px,-1px)}
+    60%{transform:translate(-1px,2px)} 80%{transform:translate(1px,-2px)} 100%{transform:translate(0)}
+  }
+
+  .progress-bar {
+    display: inline-block;
+    background: var(--green-dark);
+    height: 8px;
+    transition: width 0.05s;
+  }
+
+  /* Scrollbar for content */
+  .scrollable { max-height: 300px; overflow-y: auto; }
+  .scrollable::-webkit-scrollbar { width: 3px; }
+  .scrollable::-webkit-scrollbar-thumb { background: var(--green-dark); }
+
+  /* Mobile hint */
+  #mobile-hint {
+    display: none;
+    position: fixed;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #2a4a2a;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 600px) {
+    html, body { font-size: 12px; }
+    #mobile-hint { display: block; }
+    .ascii { font-size: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="terminal-wrapper">
+  <div id="titlebar">
+    <div class="dots">
+      <div class="dot dot-r"></div>
+      <div class="dot dot-y"></div>
+      <div class="dot dot-g"></div>
+    </div>
+    <div class="title">PORTFOLIO — bash — 80×24</div>
+    <div class="version">v2.0.1</div>
+  </div>
+
+  <div id="output"></div>
+
+  <div id="input-line">
+    <div id="prompt">
+      <span class="user">visitor</span><span class="at">@</span><span class="host">portfolio</span>:<span class="path" id="prompt-path">~</span>$
+    </div>
+    <input id="cmd-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" autofocus>
+  </div>
+</div>
+
+<div id="mobile-hint">tap here to type a command</div>
+
+<script>
+// ─── DATA ────────────────────────────────────────────────────────────────────
+const DATA = {
+  name: "Amir Azzam",
+  about: {
+    name: "Amir Azzam",
+    title: "Business Information Technology Student & DevOps Enthusiast",
+    bio: [
+      "Dual program student at the Canadian International College (Egypt)",
+      "in partnership with Cape Breton University (Canada).",
+      "GPA: 3.7 | Expected Graduation: 2026",
+      "",
+      "Passionate about DevOps, cloud infrastructure, and building",
+      "solutions that bridge business and technology."
+    ]
+  },
+  skills: [
+    "Python", "C++", "Bash Scripting", "Docker", "Kubernetes",
+    "CI/CD", "Azure DevOps", "AWS", "Linux", "Web Development",
+    ".NET MVC", "Java", "Databases", "Networking", "Problem Solving", "Communication"
+  ],
+  education: [
+    {
+      degree: "Bachelor's Degree — Business Information Technology",
+      school: "Canadian International College (Egypt) × Cape Breton University (Canada)",
+      period: "2022 – 2026",
+      note: "Dual Program | GPA: 3.7"
+    }
+  ],
+  experience: [
+    {
+      role: "DevOps Intern",
+      company: "Suez Canal Bank",
+      location: "Digital Transformation HQ, New Cairo",
+      period: "01/07/2025 – 14/08/2025",
+      bullets: [
+        "Hands-on experience with CI/CD pipelines using Azure DevOps",
+        "Deployed a meeting room booking app with Docker & Kubernetes",
+        "Collaborated with backend teams to troubleshoot deployment issues",
+        "Implemented build automation to reduce manual effort & speed up delivery"
+      ]
+    },
+    {
+      role: "IT Intern",
+      company: "AAV",
+      location: "AAV HQ",
+      period: "31/08/2025 – 30/09/2025",
+      bullets: [
+        "Explored LAN/WAN infrastructure: routers, switches, VLANs, access points",
+        "Visited the data center — server racks, cooling, UPS backup systems",
+        "Learned SDLC operations across different departments",
+        "Strengthened problem-solving through hands-on tasks & team collaboration"
+      ]
+    },
+    {
+      role: "Competitor — Top 10 Finish",
+      company: "Logistics Optimization Hackathon (AUC × Beltone × Robin)",
+      location: "AUC New Cairo",
+      period: "22/10/2025 – 25/10/2025",
+      bullets: [
+        "72-hour hackathon — Top 10 out of 1000+ teams from 34+ universities & 3500+ students",
+        "Designed a Multi-Warehouse Vehicle Routing Problem (VRP) solver",
+        "Applied Dijkstra's algorithm for route optimization",
+        "Used FFD for vehicle load optimization & Nearest Neighbor heuristic for clustering"
+      ]
+    }
+  ],
+  projects: [
+    {
+      name: "AES Encryption Tool",
+      tech: ["Python", "Flask", "Docker", "Docker Compose", "HTML/CSS"],
+      desc: "A Flask-based web tool for secure AES encryption/decryption of text. Features a user-friendly frontend and is fully containerized with Docker and Docker Compose. Exposes a clean API for AES operations using a user-provided key."
+    },
+    {
+      name: "Meeting Room Booking App (DevOps)",
+      tech: ["Docker", "Kubernetes", "Azure DevOps", "CI/CD"],
+      desc: "Contributed as a DevOps intern — containerized the application, orchestrated deployments with Kubernetes, and set up CI/CD pipelines in Azure DevOps. Automated build, test, and deployment for reliable multi-environment delivery."
+    },
+    {
+      name: "Airlines Ticket Reservation System",
+      tech: ["Java", "OOP", "Desktop Application"],
+      desc: "A Java-based desktop app where users search available flights using their passport number and book tickets. Demonstrates OOP principles and real-world application of Java for system automation."
+    },
+    {
+      name: "HR Management Web Application",
+      tech: [".NET MVC", "SQL", "Full-Stack"],
+      desc: "A web application enabling HR managers to view departments, manage employees, hire new staff, and handle removals. Showcases full-stack development, database integration, and role-based functionality."
+    }
+  ],
+  extracurricular: [
+    {
+      role: "Technical HR",
+      org: "Enactus CIC",
+      period: "05/2025 – Present",
+      bullets: [
+        "Managed technical recruitment and onboarding within the student club",
+        "Evaluated candidates' technical skills for effective team selection",
+        "Facilitated technical training and knowledge sharing for new members"
+      ]
+    },
+    {
+      role: "Volunteer",
+      org: "AYB — Ramadan Charity Initiative",
+      period: "03/2025 – 04/2025",
+      bullets: [
+        "Prepared and packaged food boxes with essential supplies for families in need",
+        "Assisted in organizing and distributing items for community development",
+        "Developed teamwork, coordination, and organizational skills"
+      ]
+    }
+  ],
+  contact: {
+    email:    "Amirazzamm@gmail.com",
+    github:   "github.com/amir-azzam",
+    linkedin: "linkedin.com/in/amir-azzam",
+    location: "Cairo, Egypt"
+  }
+};
+
+// ─── FILESYSTEM ──────────────────────────────────────────────────────────────
+const FS = {
+  "~": {
+    type: "dir",
+    children: ["about", "skills", "experience", "projects", "education", "contact", "extras"]
+  },
+  "~/about": {
+    type: "dir",
+    children: ["bio.txt", "title.txt"]
+  },
+  "~/skills": {
+    type: "dir",
+    children: ["technical.txt", "soft.txt"]
+  },
+  "~/experience": {
+    type: "dir",
+    children: ["suez_canal_bank.txt", "aav.txt", "hackathon.txt"]
+  },
+  "~/projects": {
+    type: "dir",
+    children: ["aes_encryption.txt", "meeting_room_app.txt", "airline_reservation.txt", "hr_webapp.txt"]
+  },
+  "~/education": {
+    type: "dir",
+    children: ["degree.txt"]
+  },
+  "~/contact": {
+    type: "dir",
+    children: ["info.txt"]
+  },
+  "~/extras": {
+    type: "dir",
+    children: ["enactus.txt", "volunteering.txt"]
+  }
+};
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let currentPath = "~";
+let history = [];
+let historyIndex = -1;
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const output = document.getElementById("output");
+const input  = document.getElementById("cmd-input");
+const promptPath = document.getElementById("prompt-path");
+
+function print(html, cls = "") {
+  const div = document.createElement("div");
+  div.className = "line fade-in" + (cls ? " " + cls : "");
+  div.innerHTML = html;
+  output.appendChild(div);
+  output.scrollTop = output.scrollHeight;
+}
+
+function blank() {
+  const div = document.createElement("div");
+  div.className = "line blank";
+  output.appendChild(div);
+}
+
+function printDelay(lines, baseDelay = 0, interval = 40) {
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      if (l === "") blank();
+      else print(l);
+      output.scrollTop = output.scrollHeight;
+    }, baseDelay + i * interval);
+  });
+  return baseDelay + lines.length * interval;
+}
+
+function echoCommand(cmd) {
+  print(`<span class="cmd-echo"><span class="prompt-part">visitor@portfolio</span>:<span class="path-part">${currentPath}</span>$ <span class="cmd-part">${cmd}</span></span>`);
+}
+
+function updatePrompt() {
+  promptPath.textContent = currentPath;
+}
+
+// ─── COMMANDS ────────────────────────────────────────────────────────────────
+const COMMANDS = {
+
+  help() {
+    blank();
+    print('<span class="section-header">  AVAILABLE COMMANDS  </span>');
+    blank();
+    const cmds = [
+      ["ls",            "list contents of current directory"],
+      ["cd [dir]",      "navigate into a directory"],
+      ["cd ..",         "go back to parent directory"],
+      ["cd ~",          "go home"],
+      ["cat [file]",    "read a file's contents"],
+      ["pwd",           "print current directory"],
+      ["whoami",        "display portfolio owner info"],
+      ["clear",         "clear the terminal"],
+      ["help",          "show this help message"],
+    ];
+    cmds.forEach(([cmd, desc]) => {
+      print(`  <span class="cyan">${cmd.padEnd(18)}</span><span class="muted">${desc}</span>`);
+    });
+    blank();
+    print('<span class="muted">  Tip: try  <span class="amber">ls</span>  then  <span class="amber">cd about</span>  to get started</span>');
+    blank();
+  },
+
+  clear() {
+    output.innerHTML = "";
+  },
+
+  pwd() {
+    blank();
+    print(`<span class="highlight">${currentPath.replace("~", "/home/visitor")}</span>`);
+    blank();
+  },
+
+  whoami() {
+    blank();
+    print('<span class="cyan">Business IT Student | DevOps Enthusiast | Top-10 Hackathon Finisher</span>');
+    print('<span class="muted">Canadian International College (Egypt) × Cape Breton University (Canada)</span>');
+    blank();
+  },
+
+  ls(args) {
+    const node = FS[currentPath];
+    if (!node) { print('<span class="red">ls: cannot access directory</span>'); return; }
+    blank();
+    if (node.children.length === 0) {
+      print('<span class="muted">(empty)</span>');
+    } else {
+      const grid = document.createElement("div");
+      grid.className = "ls-grid fade-in";
+      node.children.forEach(child => {
+        const isFile = child.includes(".");
+        const span = document.createElement("span");
+        span.className = "ls-item" + (isFile ? " file" : "");
+        span.textContent = child;
+        grid.appendChild(span);
+      });
+      output.appendChild(grid);
+    }
+    blank();
+  },
+
+  cd(args) {
+    if (!args || args === "~") {
+      currentPath = "~";
+      updatePrompt();
+      blank();
+      return;
+    }
+    if (args === "..") {
+      if (currentPath === "~") {
+        print('<span class="muted">Already at home directory</span>');
+        return;
+      }
+      currentPath = "~";
+      updatePrompt();
+      blank();
+      return;
+    }
+
+    const target = currentPath === "~" ? `~/${args}` : `${currentPath}/${args}`;
+    if (FS[target] && FS[target].type === "dir") {
+      currentPath = target;
+      updatePrompt();
+      blank();
+      // Auto-hint
+      print(`<span class="muted">  Entered <span class="cyan">${args}/</span> — type <span class="amber">ls</span> to see contents</span>`);
+      blank();
+    } else {
+      // check if it's a file
+      const node = FS[currentPath];
+      if (node && node.children && node.children.includes(args)) {
+        print(`<span class="red">cd: ${args}: Not a directory. Try <span class="amber">cat ${args}</span></span>`);
+      } else {
+        print(`<span class="red">cd: ${args}: No such file or directory</span>`);
+      }
+    }
+  },
+
+  cat(args) {
+    if (!args) { print('<span class="red">cat: missing file operand</span>'); return; }
+
+    // Map file to content
+    const node = FS[currentPath];
+    if (!node || !node.children || !node.children.includes(args)) {
+      print(`<span class="red">cat: ${args}: No such file or directory</span>`);
+      return;
+    }
+
+    blank();
+    this._renderFile(currentPath, args);
+    blank();
+  },
+
+  _renderFile(dir, file) {
+    const key = `${dir}/${file}`;
+
+    // ABOUT
+    if (key === "~/about/bio.txt") {
+      print('<span class="section-header">  BIO  </span>');
+      blank();
+      DATA.about.bio.forEach(line => print(`<span class="output-text">${line}</span>`));
+    }
+    else if (key === "~/about/title.txt") {
+      print('<span class="section-header">  TITLE & ROLE  </span>');
+      blank();
+      print(`<span class="green highlight">${DATA.about.title}</span>`);
+    }
+
+    // SKILLS
+    else if (key === "~/skills/technical.txt") {
+      print('<span class="section-header">  TECHNICAL SKILLS  </span>');
+      blank();
+      const technical = ["Python","C++","Bash Scripting","Docker","Kubernetes","CI/CD","Azure DevOps","AWS","Linux","Web Development",".NET MVC","Java","Databases","Networking"];
+      const grid = document.createElement("div");
+      grid.className = "skill-grid fade-in";
+      technical.forEach(s => {
+        const tag = document.createElement("span");
+        tag.className = "skill-tag";
+        tag.textContent = s;
+        grid.appendChild(tag);
+      });
+      output.appendChild(grid);
+    }
+    else if (key === "~/skills/soft.txt") {
+      print('<span class="section-header">  SOFT SKILLS  </span>');
+      blank();
+      ["Problem Solving","Communication","Teamwork","Cross-functional Collaboration","Adaptability"].forEach(s => {
+        print(`<span class="output-text">  ▸ ${s}</span>`);
+      });
+    }
+
+    // EXPERIENCE
+    else if (key === "~/experience/suez_canal_bank.txt") {
+      this._renderExp(DATA.experience[0]);
+    }
+    else if (key === "~/experience/aav.txt") {
+      this._renderExp(DATA.experience[1]);
+    }
+    else if (key === "~/experience/hackathon.txt") {
+      this._renderExp(DATA.experience[2]);
+    }
+
+    // PROJECTS
+    else if (key === "~/projects/aes_encryption.txt") {
+      this._renderProject(DATA.projects[0]);
+    }
+    else if (key === "~/projects/meeting_room_app.txt") {
+      this._renderProject(DATA.projects[1]);
+    }
+    else if (key === "~/projects/airline_reservation.txt") {
+      this._renderProject(DATA.projects[2]);
+    }
+    else if (key === "~/projects/hr_webapp.txt") {
+      this._renderProject(DATA.projects[3]);
+    }
+
+    // EDUCATION
+    else if (key === "~/education/degree.txt") {
+      print('<span class="section-header">  EDUCATION  </span>');
+      blank();
+      const e = DATA.education[0];
+      print(`<span class="highlight">${e.degree}</span>`);
+      print(`<span class="amber">${e.school}</span>`);
+      print(`<span class="muted">${e.period}</span>`);
+      blank();
+      print(`<span class="cyan">${e.note}</span>`);
+    }
+
+    // CONTACT
+    else if (key === "~/contact/info.txt") {
+      print('<span class="section-header">  CONTACT  </span>');
+      blank();
+      const c = DATA.contact;
+      print(`<span class="muted">  📧 Email    </span><a href="mailto:${c.email}" style="color:#00ffff;text-decoration:none">${c.email}</a>`);
+      print(`<span class="muted">  🐙 GitHub   </span><a href="https://${c.github}" target="_blank" style="color:#00ffff;text-decoration:none">${c.github}</a>`);
+      print(`<span class="muted">  💼 LinkedIn </span><a href="https://${c.linkedin}" target="_blank" style="color:#00ffff;text-decoration:none">${c.linkedin}</a>`);
+      print(`<span class="muted">  📍 Location </span><span class="green">${c.location}</span>`);
+    }
+
+    // EXTRAS
+    else if (key === "~/extras/enactus.txt") {
+      const e = DATA.extracurricular[0];
+      print(`<span class="section-header">  ${e.org.toUpperCase()} — ${e.role.toUpperCase()}  </span>`);
+      blank();
+      print(`<span class="amber">${e.period}</span>`);
+      blank();
+      e.bullets.forEach(b => print(`<span class="output-text">  ▸ ${b}</span>`));
+    }
+    else if (key === "~/extras/volunteering.txt") {
+      const e = DATA.extracurricular[1];
+      print(`<span class="section-header">  ${e.org.toUpperCase()}  </span>`);
+      blank();
+      print(`<span class="amber">${e.period}</span>`);
+      blank();
+      e.bullets.forEach(b => print(`<span class="output-text">  ▸ ${b}</span>`));
+    }
+  },
+
+  _renderExp(exp) {
+    print(`<span class="section-header">  ${exp.company.toUpperCase()}  </span>`);
+    blank();
+    print(`<span class="highlight">${exp.role}</span>`);
+    print(`<span class="amber">${exp.location}</span>`);
+    print(`<span class="muted">${exp.period}</span>`);
+    blank();
+    exp.bullets.forEach(b => print(`<span class="output-text">  ▸ ${b}</span>`));
+  },
+
+  _renderProject(proj) {
+    print(`<span class="section-header">  ${proj.name.toUpperCase()}  </span>`);
+    blank();
+    const techHtml = proj.tech.map(t => `<span class="skill-tag">${t}</span>`).join(" ");
+    const techDiv = document.createElement("div");
+    techDiv.className = "skill-grid fade-in";
+    techDiv.innerHTML = techHtml;
+    output.appendChild(techDiv);
+    blank();
+    print(`<span class="output-text">${proj.desc}</span>`);
+  }
+};
+
+// ─── BOOT SEQUENCE ───────────────────────────────────────────────────────────
+function boot() {
+  const ascii = `
+<span class="ascii" style="color:#007a1f">██████╗  ██████╗ ██████╗ ████████╗███████╗ ██████╗ ██╗     ██╗ ██████╗ 
+██╔══██╗██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝██╔═══██╗██║     ██║██╔═══██╗
+██████╔╝██║   ██║██████╔╝   ██║   █████╗  ██║   ██║██║     ██║██║   ██║
+██╔═══╝ ██║   ██║██╔══██╗   ██║   ██╔══╝  ██║   ██║██║     ██║██║   ██║
+██║     ╚██████╔╝██║  ██║   ██║   ██║     ╚██████╔╝███████╗██║╚██████╔╝
+╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ </span>`;
+
+  const lines = [
+    ascii,
+    '',
+    '<span class="muted">  ┌──────────────────────────────────────────────────┐</span>',
+    '<span class="muted">  │</span>  <span class="cyan">Welcome to my Interactive Portfolio Terminal</span>  <span class="muted">│</span>',
+    '<span class="muted">  │</span>  <span class="green">Business IT Student & DevOps Enthusiast</span>       <span class="muted">│</span>',
+    '<span class="muted">  └──────────────────────────────────────────────────┘</span>',
+    '',
+    '<span class="muted">  System initialized. Session started.</span>',
+    '',
+    '<span class="output-text">  This terminal is your guide through my portfolio.</span>',
+    '<span class="output-text">  Navigate using familiar shell commands to explore my work.</span>',
+    '',
+    '<span class="muted">  ──────────────────────────────────────────</span>',
+    '<span class="cyan">  Quick Start:</span>',
+    '<span class="output-text">    <span class="amber">ls</span>           → see what\'s available here</span>',
+    '<span class="output-text">    <span class="amber">cd about</span>     → learn about me</span>',
+    '<span class="output-text">    <span class="amber">cd projects</span>  → see my work</span>',
+    '<span class="output-text">    <span class="amber">help</span>         → see all commands</span>',
+    '<span class="muted">  ──────────────────────────────────────────</span>',
+    '',
+  ];
+
+  printDelay(lines, 0, 60);
+}
+
+// ─── INPUT HANDLER ───────────────────────────────────────────────────────────
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    const raw = input.value.trim();
+    input.value = "";
+
+    if (!raw) return;
+
+    // history
+    history.unshift(raw);
+    historyIndex = -1;
+
+    echoCommand(raw);
+
+    const parts = raw.split(/\s+/);
+    const cmd   = parts[0].toLowerCase();
+    const args  = parts.slice(1).join(" ");
+
+    if (cmd === "help")   { COMMANDS.help(); }
+    else if (cmd === "clear") { COMMANDS.clear(); }
+    else if (cmd === "pwd")   { COMMANDS.pwd(); }
+    else if (cmd === "whoami"){ COMMANDS.whoami(); }
+    else if (cmd === "ls")    { COMMANDS.ls(args); }
+    else if (cmd === "cd")    { COMMANDS.cd(args); }
+    else if (cmd === "cat")   { COMMANDS.cat(args); }
+    else if (cmd === "echo")  {
+      blank();
+      print(`<span class="output-text">${args}</span>`);
+      blank();
+    }
+    else if (cmd === "man") {
+      blank();
+      print(`<span class="muted">No manual entry for ${args || cmd}. Try <span class="amber">help</span></span>`);
+      blank();
+    }
+    else {
+      blank();
+      print(`<span class="red">command not found: ${cmd}</span> <span class="muted">— type <span class="amber">help</span> for available commands</span>`);
+      blank();
+    }
+  }
+
+  // history navigation
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (historyIndex < history.length - 1) {
+      historyIndex++;
+      input.value = history[historyIndex];
+    }
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (historyIndex > 0) {
+      historyIndex--;
+      input.value = history[historyIndex];
+    } else {
+      historyIndex = -1;
+      input.value = "";
+    }
+  }
+
+  // Tab completion
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const val = input.value;
+    const parts = val.split(/\s+/);
+    if (parts.length >= 2) {
+      const prefix = parts[parts.length - 1];
+      const node = FS[currentPath];
+      if (node && node.children) {
+        const matches = node.children.filter(c => c.startsWith(prefix));
+        if (matches.length === 1) {
+          parts[parts.length - 1] = matches[0];
+          input.value = parts.join(" ");
+        } else if (matches.length > 1) {
+          blank();
+          print(matches.map(m => `<span class="cyan">${m}</span>`).join("  "));
+        }
+      }
+    }
+  }
+});
+
+// keep focus on input
+document.addEventListener("click", () => input.focus());
+document.getElementById("mobile-hint").addEventListener("click", () => input.focus());
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+boot();
+</script>
+</body>
+</html>
